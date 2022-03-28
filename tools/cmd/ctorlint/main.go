@@ -1,8 +1,14 @@
 package main
 
 import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 
+	"github.com/elauffenburger/blog/tools/cmd/ctorlint/internal/lint"
+	"github.com/elauffenburger/blog/tools/cmd/ctorlint/internal/utils"
 	"github.com/mattn/go-zglob"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +32,8 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dirsToLint := args
 
-			filesByPkg := make(map[string][]string)
+			fset := token.NewFileSet()
+			astFilesByPkg := make(map[string][]*ast.File)
 			for _, dir := range dirsToLint {
 				absDir, err := filepath.Abs(dir)
 				if err != nil {
@@ -40,39 +47,28 @@ func main() {
 
 				for _, f := range files {
 					pkg := filepath.Dir(f)
-					filesByPkg[pkg] = append(filesByPkg[pkg], f)
+
+					astFile, err := parser.ParseFile(fset, f, nil, parser.ParseComments)
+					if err != nil {
+						return err
+					}
+
+					astFilesByPkg[pkg] = append(astFilesByPkg[pkg], astFile)
 				}
 			}
 
-			for pkg, files := range filesByPkg {
-				if err := lintPkg(pkg, files); err != nil {
+			for pkg, files := range astFilesByPkg {
+				unmatched, err := lint.LintPkg(pkg, files)
+				if err != nil {
 					return err
 				}
+
+				fmt.Printf("unmatched structs: %#v\n\n", unmatched)
 			}
 
 			return nil
 		},
 	}
 
-	noerror(cmd.Execute())
-}
-
-func NewStrPtrWithErr() (*string, error) {
-	return nil, nil
-}
-
-//nolint:ctors
-type foo struct {
-}
-
-// some other comment!
-type Foo struct {
-}
-
-//nolint:ctors
-type Bar struct {
-}
-
-func NewFooPtrWithErr() (Foo, error) {
-	return Foo{}, nil
+	utils.NoError(cmd.Execute())
 }
