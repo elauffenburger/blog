@@ -9,7 +9,7 @@ const (
 	Unexported            = ""
 )
 
-type Strct struct {
+type Struct struct {
 	Name     string
 	Vis      Visibility
 	NoLint   bool
@@ -24,7 +24,7 @@ type Ctor struct {
 	Decl       *ast.FuncDecl
 }
 
-func (c Ctor) MatchesStruct(s Strct) bool {
+func (c Ctor) MatchesStruct(s Struct) bool {
 	for _, r := range c.Decl.Type.Results.List {
 		// Flatten out *T to T
 		expr := r.Type

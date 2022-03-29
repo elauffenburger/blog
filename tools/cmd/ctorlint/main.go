@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -32,6 +31,7 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dirsToLint := args
 
+			// Glob all `.go` files from the provided dirs and parse them into `ast.File`s grouped by pkg.
 			fset := token.NewFileSet()
 			astFilesByPkg := make(map[string][]*ast.File)
 			for _, dir := range dirsToLint {
@@ -57,13 +57,15 @@ func main() {
 				}
 			}
 
+			// Parse each pkg into a `lint.PkgElements` that's lookupable by pkg name.
+			var pkgs lint.PkgGroup
 			for pkg, files := range astFilesByPkg {
-				unmatched, err := lint.LintPkg(pkg, files)
+				pkgElems, err := lint.ParsePkg(pkg, files)
 				if err != nil {
 					return err
 				}
 
-				fmt.Printf("unmatched structs: %#v\n\n", unmatched)
+				pkgs[pkg] = pkgElems
 			}
 
 			return nil

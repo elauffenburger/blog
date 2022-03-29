@@ -1,6 +1,9 @@
 package testsrc
 
-import "regexp"
+import (
+	"fmt"
+	"regexp"
+)
 
 // valid: unexported
 type valid struct {
@@ -52,3 +55,9 @@ func NewValidTPtrErr() (*ValidTPtr, error) { return nil, nil }
 func NewRegexpPtr() *regexp.Regexp { return nil }
 
 func NewInvalidCtor() error { return nil }
+
+func BypassCtor() {
+	r := regexp.Regexp{}
+	fmt.Printf("%s", r.String())
+	t := ValidT{}
+}

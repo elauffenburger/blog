@@ -15,17 +15,16 @@ import (
 //go:embed .testing/testsrc.go
 var testsrc string
 
-func TestStructs(t *testing.T) {
-	f, err := parser.ParseFile(token.NewFileSet(), "testsrc.go", testsrc, parser.ParseComments)
+func TestStructsWithoutCtors(t *testing.T) {
+	pkg := parseTestSrc(t)
+
+	unmatchedStructs, err := pkg.StructsWithoutCtors()
 	require.NoError(t, err)
 
-	unmatched, err := lint.LintPkg("test", []*ast.File{f})
-	require.NoError(t, err)
-
-	unmatchedByName := iter.Fold[lint.Strct](
-		iter.Lift(unmatched),
-		make(map[string]lint.Strct),
-		func(acc map[string]lint.Strct, s lint.Strct) map[string]lint.Strct {
+	unmatchedByName := iter.Fold[lint.Struct](
+		iter.Lift(unmatchedStructs),
+		make(map[string]lint.Struct),
+		func(acc map[string]lint.Struct, s lint.Struct) map[string]lint.Struct {
 			acc[s.Name] = s
 
 			return acc
@@ -71,4 +70,24 @@ func TestStructs(t *testing.T) {
 			require.NotContains(t, unmatchedByName, "ValidTPtrErr")
 		})
 	})
+}
+
+func TestInvalidStructInits(t *testing.T) {
+	pkg := parseTestSrc(t)
+	pkgGroup := lint.PkgGroup{pkg.Name: pkg}
+
+	invalidInits, err := pkgGroup.InvalidStructInits()
+	require.NoError(t, err)
+
+	require.Len(t, invalidInits, 1)
+}
+
+func parseTestSrc(t *testing.T) lint.PkgElements {
+	f, err := parser.ParseFile(token.NewFileSet(), "testsrc.go", testsrc, parser.ParseComments)
+	require.NoError(t, err)
+
+	pkg, err := lint.ParsePkg("test", []*ast.File{f})
+	require.NoError(t, err)
+
+	return pkg
 }
