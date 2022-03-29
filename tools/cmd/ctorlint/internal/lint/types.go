@@ -1,6 +1,9 @@
 package lint
 
-import "go/ast"
+import (
+	"go/ast"
+	"go/token"
+)
 
 type Visibility string
 
@@ -15,6 +18,8 @@ type Struct struct {
 	NoLint   bool
 	Type     *ast.StructType
 	TypeSpec *ast.TypeSpec
+	FileSet  *token.FileSet
+	File     *ast.File
 }
 
 type Ctor struct {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -57,15 +58,40 @@ func main() {
 				}
 			}
 
-			// Parse each pkg into a `lint.PkgElements` that's lookupable by pkg name.
-			var pkgs lint.PkgGroup
+			// Parse each pkg into a `lint.PkgElements` that's lookupable by pkg name
+			// and add to the package group.
+			pkgs := make(lint.PkgGroup)
 			for pkg, files := range astFilesByPkg {
-				pkgElems, err := lint.ParsePkg(pkg, files)
+				pkgElems, err := lint.ParsePkg(pkg, fset, files)
 				if err != nil {
 					return err
 				}
 
 				pkgs[pkg] = pkgElems
+			}
+
+			// Find and report invalid stuff!
+
+			structsWithoutCtors, err := pkgs.StructsWithoutCtors()
+			if err != nil {
+				return err
+			}
+
+			if len(structsWithoutCtors) > 0 {
+				for _, s := range structsWithoutCtors {
+					fmt.Printf("type without ctor: %s: %s\n", s.FileSet.Position(s.Type.Pos()), s.Name)
+				}
+			}
+
+			invalidStructInits, err := pkgs.InvalidStructInits()
+			if err != nil {
+				return err
+			}
+
+			for _, init := range invalidStructInits {
+				s := init.Struct
+
+				fmt.Printf("type init without ctor: %s: %s\n", s.FileSet.Position(init.Expr.Pos()), s.Name)
 			}
 
 			return nil

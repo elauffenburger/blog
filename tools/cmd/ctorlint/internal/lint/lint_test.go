@@ -83,10 +83,12 @@ func TestInvalidStructInits(t *testing.T) {
 }
 
 func parseTestSrc(t *testing.T) lint.PkgElements {
-	f, err := parser.ParseFile(token.NewFileSet(), "testsrc.go", testsrc, parser.ParseComments)
+	fileset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fileset, "testsrc.go", testsrc, parser.ParseComments)
 	require.NoError(t, err)
 
-	pkg, err := lint.ParsePkg("test", []*ast.File{f})
+	pkg, err := lint.ParsePkg("test", fileset, []*ast.File{f})
 	require.NoError(t, err)
 
 	return pkg
