@@ -2,15 +2,18 @@ package main
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
+	"io/fs"
+	"log"
+	"os"
 	"path/filepath"
+	"runtime/pprof"
+	"strings"
 
 	"github.com/elauffenburger/blog/tools/cmd/ctorlint/internal/lint"
 	"github.com/elauffenburger/blog/tools/cmd/ctorlint/internal/utils"
-	"github.com/mattn/go-zglob"
+	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
+	"golang.org/x/tools/go/packages"
 )
 
 /*
@@ -28,62 +31,103 @@ import (
  */
 
 func main() {
+	var cpuprofile string
+
 	cmd := cobra.Command{
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dirsToLint := args
 
-			// Glob all `.go` files from the provided dirs and parse them into `ast.File`s grouped by pkg.
-			fset := token.NewFileSet()
-			astFilesByPkg := make(map[string][]*ast.File)
+			if cpuprofile != "" {
+				f, err := os.Create(cpuprofile)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				pprof.StartCPUProfile(f)
+				defer pprof.StopCPUProfile()
+			}
+
+			pkgs := make(map[string]*packages.Package)
+
+			var pkgErrs error
 			for _, dir := range dirsToLint {
-				absDir, err := filepath.Abs(dir)
-				if err != nil {
-					return err
+				cfg := &packages.Config{
+					Mode: packages.NeedSyntax | packages.NeedFiles | packages.NeedTypes | packages.NeedDeps,
+					Dir:  dir,
 				}
 
-				files, err := zglob.Glob(filepath.Join(absDir, "/**/*.go"))
-				if err != nil {
-					return err
-				}
+				var pkgsToLint []string
+				filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+					// If this isn't a dir, ignore it.
+					if !d.IsDir() {
+						return nil
+					}
 
-				for _, f := range files {
-					pkg := filepath.Dir(f)
-
-					astFile, err := parser.ParseFile(fset, f, nil, parser.ParseComments)
+					files, err := os.ReadDir(path)
 					if err != nil {
 						return err
 					}
 
-					astFilesByPkg[pkg] = append(astFilesByPkg[pkg], astFile)
-				}
-			}
+					// If this dir contains any go files, it's considered a package.
+					for _, f := range files {
+						if filepath.Ext(f.Name()) == ".go" {
+							pkgsToLint = append(pkgsToLint, path)
+							break
+						}
+					}
 
-			// Parse each pkg into a `lint.PkgElements` that's lookupable by pkg name
-			// and add to the package group.
-			pkgs := make(lint.PkgGroup)
-			for pkg, files := range astFilesByPkg {
-				pkgElems, err := lint.ParsePkg(pkg, fset, files)
+					return nil
+				})
+
+				ps, err := packages.Load(cfg, pkgsToLint...)
 				if err != nil {
 					return err
 				}
 
-				pkgs[pkg] = pkgElems
+			pkgsLoop:
+				for _, pkg := range ps {
+					for _, err := range pkg.Errors {
+						if strings.HasPrefix(err.Msg, "build constraints exclude all") {
+							continue pkgsLoop
+						}
+
+						pkgErrs = multierror.Append(pkgErrs, err)
+					}
+
+					pkgs[pkg.ID] = pkg
+				}
+			}
+
+			if pkgErrs != nil {
+				return pkgErrs
+			}
+
+			// Parse each pkg into a `lint.PkgElements` that's lookupable by pkg name
+			// and add to the package group.
+			pg := make(lint.PkgGroup)
+			for _, pkg := range pkgs {
+				parsedPkg, err := lint.ParsePkg(pkg)
+				if err != nil {
+					return err
+				}
+
+				pg[pkg.ID] = parsedPkg
 			}
 
 			// Find and report invalid stuff!
 
-			structsWithoutCtors, err := pkgs.StructsWithoutCtors()
+			structsWithoutCtors, err := pg.StructsWithoutCtors()
 			if err != nil {
 				return err
 			}
 
 			if len(structsWithoutCtors) > 0 {
 				for _, s := range structsWithoutCtors {
-					fmt.Printf("type without ctor: %s: %s\n", s.FileSet.Position(s.Type.Pos()), s.Name)
+					fmt.Printf("type without ctor: %s: %s\n", s.Pkg.Fset.Position(s.Type.Pos()), s.Name)
 				}
 			}
 
-			invalidStructInits, err := pkgs.InvalidStructInits()
+			invalidStructInits, err := pg.InvalidStructInits()
 			if err != nil {
 				return err
 			}
@@ -91,12 +135,14 @@ func main() {
 			for _, init := range invalidStructInits {
 				s := init.Struct
 
-				fmt.Printf("type init without ctor: %s: %s\n", s.FileSet.Position(init.Expr.Pos()), s.Name)
+				fmt.Printf("type init without ctor: %s: %s\n", s.Pkg.Fset.Position(init.Expr.Pos()), s.Name)
 			}
 
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&cpuprofile, "cpuprofile", "", "where to write CPU profiling report to")
 
 	utils.NoError(cmd.Execute())
 }

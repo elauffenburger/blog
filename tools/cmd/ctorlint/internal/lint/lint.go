@@ -1,29 +1,28 @@
 package lint
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"strings"
 
 	"github.com/BooleanCat/go-functional/iter"
+	"golang.org/x/tools/go/packages"
 )
 
-type PkgElements struct {
-	files []*ast.File
+type Pkg struct {
+	Pkg *packages.Package
 
-	Name    string
 	Structs map[string]Struct
 	Ctors   []Ctor
 }
 
-func ParsePkg(pkg string, fset *token.FileSet, files []*ast.File) (PkgElements, error) {
+func ParsePkg(pkg *packages.Package) (Pkg, error) {
 	var (
 		pkgStructs = make(map[string]Struct)
 		pkgCtors   []Ctor
 	)
 
-	for _, f := range files {
+	for _, f := range pkg.Syntax {
 		for _, decl := range f.Decls {
 			switch t := decl.(type) {
 			case *ast.FuncDecl:
@@ -77,7 +76,7 @@ func ParsePkg(pkg string, fset *token.FileSet, files []*ast.File) (PkgElements, 
 						NoLint:   nolint,
 						Type:     st,
 						TypeSpec: spec,
-						FileSet:  fset,
+						Pkg:      pkg,
 						File:     f,
 					}
 				}
@@ -85,10 +84,10 @@ func ParsePkg(pkg string, fset *token.FileSet, files []*ast.File) (PkgElements, 
 		}
 	}
 
-	return PkgElements{files, pkg, pkgStructs, pkgCtors}, nil
+	return Pkg{pkg, pkgStructs, pkgCtors}, nil
 }
 
-func (pkg PkgElements) StructsWithoutCtors() ([]Struct, error) {
+func (pkg Pkg) StructsWithoutCtors() ([]Struct, error) {
 	var pkgStructs []Struct
 	for _, s := range pkg.Structs {
 		pkgStructs = append(pkgStructs, s)
@@ -120,7 +119,7 @@ func (pkg PkgElements) StructsWithoutCtors() ([]Struct, error) {
 	return unmatched, nil
 }
 
-type PkgGroup map[string]PkgElements
+type PkgGroup map[string]Pkg
 
 type StructInit struct {
 	Struct *Struct
@@ -130,7 +129,7 @@ type StructInit struct {
 func (pg PkgGroup) InvalidStructInits() ([]StructInit, error) {
 	var invalidInits []StructInit
 	for _, pkg := range pg {
-		for _, f := range pkg.files {
+		for _, f := range pkg.Pkg.Syntax {
 			// Go through all decls for this file.
 			for _, decl := range f.Decls {
 				// If this isn't a fn decl, skip it.
@@ -153,9 +152,9 @@ func (pg PkgGroup) InvalidStructInits() ([]StructInit, error) {
 						// If we're creating a composit literal:
 						case *ast.CompositeLit:
 							switch typ := rhsT.Type.(type) {
-							// If we have a raw ident, it's in the current pkg
+							// If we have a raw ident, it's in the current pkg.
 							case *ast.Ident:
-								init, err := pg.initForStructInvalid(rhs, pkg.Name, typ.Name)
+								init, err := pg.initForStructInvalid(rhs, pkg, typ.Name)
 								if err != nil {
 									return nil, err
 								}
@@ -166,13 +165,41 @@ func (pg PkgGroup) InvalidStructInits() ([]StructInit, error) {
 
 							// If we have a selector, then it's in another pkg.
 							case *ast.SelectorExpr:
-								init, err := pg.initForStructInvalid(rhs, typ.X.(*ast.Ident).Name, typ.Sel.Name)
+								localPkgName := typ.X.(*ast.Ident).Name
+
+								var pkgPath string
+								for _, i := range f.Imports {
+									if i.Name != nil {
+										pkg := i.Name.Name
+										if pkg == localPkgName {
+											pkgPath = i.Path.Value
+											break
+										}
+									} else {
+										impPath := strings.Trim(i.Path.Value, `"`)
+										impPathParts := strings.Split(impPath, "/")
+										impPkgName := impPathParts[len(impPathParts)-1]
+
+										if impPkgName == localPkgName {
+											pkgPath = impPath
+											break
+										}
+									}
+								}
+
+								// If we don't know about this pkg, bail.
+								pkg, ok := pg[pkgPath]
+								if !ok {
+									continue
+								}
+
+								invInit, err := pg.initForStructInvalid(rhs, pkg, typ.Sel.Name)
 								if err != nil {
 									return nil, err
 								}
 
-								if init != nil {
-									invalidInits = append(invalidInits, *init)
+								if invInit != nil {
+									invalidInits = append(invalidInits, *invInit)
 								}
 							}
 						}
@@ -185,17 +212,11 @@ func (pg PkgGroup) InvalidStructInits() ([]StructInit, error) {
 	return invalidInits, nil
 }
 
-func (pg PkgGroup) initForStructInvalid(expr ast.Expr, pkgName, structName string) (*StructInit, error) {
-	// If we don't know about this pkg, bail.
-	pkgElems, ok := pg[pkgName]
+func (pg PkgGroup) initForStructInvalid(expr ast.Expr, pkg Pkg, typeName string) (*StructInit, error) {
+	// If this isn't a struct, bail.
+	strct, ok := pkg.Structs[typeName]
 	if !ok {
 		return nil, nil
-	}
-
-	// If we know about this pkg, but we don't know about this _struct_, that's probably an error.
-	strct, ok := pkgElems.Structs[structName]
-	if !ok {
-		return nil, fmt.Errorf("couldn't find struct '%s' in pkg '%s'; this is probably an error.", structName, pkgName)
 	}
 
 	// If we're not supposed to lint this struct, bail.
