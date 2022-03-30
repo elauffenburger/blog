@@ -10,7 +10,6 @@ import (
 	"github.com/BooleanCat/go-functional/iter"
 	"github.com/elauffenburger/blog/tools/cmd/ctorlint/internal/lint"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/tools/go/packages"
 )
 
 //go:embed .testing/testsrc.go
@@ -75,9 +74,8 @@ func TestStructsWithoutCtors(t *testing.T) {
 
 func TestInvalidStructInits(t *testing.T) {
 	pkg := parseTestSrc(t)
-	pkgGroup := lint.PkgGroup{pkg.Pkg.Name: pkg}
 
-	invalidInits, err := pkgGroup.InvalidStructInits()
+	invalidInits, err := pkg.InvalidStructInits()
 	require.NoError(t, err)
 
 	require.Len(t, invalidInits, 1)
@@ -89,12 +87,7 @@ func parseTestSrc(t *testing.T) lint.Pkg {
 	f, err := parser.ParseFile(fileset, "testsrc.go", testsrc, parser.ParseComments)
 	require.NoError(t, err)
 
-	astPkg := packages.Package{
-		Name:   "testsrc",
-		Syntax: []*ast.File{f},
-	}
-
-	pkg, err := lint.ParsePkg(&astPkg)
+	pkg, err := lint.ParsePkg([]*ast.File{f})
 	require.NoError(t, err)
 
 	return pkg

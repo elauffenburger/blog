@@ -3,7 +3,6 @@ package lint
 import (
 	"go/ast"
 	"go/token"
-	"go/types"
 	"strings"
 
 	"github.com/BooleanCat/go-functional/iter"
@@ -11,13 +10,12 @@ import (
 )
 
 type Pkg struct {
-	Pkg     *types.Package
 	Files   []*ast.File
 	Structs map[string]Struct
 	Ctors   []Ctor
 }
 
-func ParsePkg(pkg *types.Package, files []*ast.File) (Pkg, error) {
+func ParsePkg(files []*ast.File) (Pkg, error) {
 	var (
 		pkgStructs = make(map[string]Struct)
 		pkgCtors   []Ctor
@@ -77,7 +75,6 @@ func ParsePkg(pkg *types.Package, files []*ast.File) (Pkg, error) {
 						NoLint:   nolint,
 						Type:     st,
 						TypeSpec: spec,
-						Pkg:      pkg,
 						File:     f,
 					}
 				}
@@ -85,7 +82,7 @@ func ParsePkg(pkg *types.Package, files []*ast.File) (Pkg, error) {
 		}
 	}
 
-	return Pkg{pkg, files, pkgStructs, pkgCtors}, nil
+	return Pkg{files, pkgStructs, pkgCtors}, nil
 }
 
 func (pkg Pkg) StructsWithoutCtors() ([]Struct, error) {
@@ -192,14 +189,14 @@ func (p Pkg) InvalidStructInits() ([]StructInit, error) {
 							pkg, ok := pkgs[pkgPath]
 							if !ok {
 								pkgs, err := packages.Load(&packages.Config{
-									Mode: packages.NeedSyntax | packages.NeedTypes,
+									Mode: packages.NeedSyntax,
 									Dir:  ".",
 								})
 								if err != nil {
 									return nil, err
 								}
 
-								pkg, err = ParsePkg(pkgs[0].Types, pkgs[0].Syntax)
+								pkg, err = ParsePkg(pkgs[0].Syntax)
 								if err != nil {
 									return nil, err
 								}

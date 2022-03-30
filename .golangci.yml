@@ -1,0 +1,34 @@
+---
+run:
+  timeout: 2m
+
+output:
+  sort-results: true
+
+linters:
+  enable:
+  - depguard
+  - goerr113
+  - goheader
+  - gomodguard
+  - goprintffuncname
+  - gocritic
+  - gosec
+  - gosimple
+  - misspell
+  - nakedret
+  - nolintlint
+  - stylecheck
+  - unconvert
+  - whitespace
+  - exportloopref
+
+  disable:
+  - maligned
+  - scopelint
+
+  presets:
+  - bugs
+  - unused
+  - format
+  - performance

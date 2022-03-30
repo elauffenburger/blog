@@ -26,7 +26,7 @@ var analyzer = &analysis.Analyzer{
 	Name: "checkctors",
 	Doc:  `does the things`,
 	Run: func(p *analysis.Pass) (interface{}, error) {
-		pkg, err := lint.ParsePkg(p.Pkg, p.Files)
+		pkg, err := lint.ParsePkg(p.Files)
 		if err != nil {
 			return nil, err
 		}
