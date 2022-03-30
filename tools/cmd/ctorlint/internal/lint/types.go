@@ -2,8 +2,7 @@ package lint
 
 import (
 	"go/ast"
-
-	"golang.org/x/tools/go/packages"
+	"go/types"
 )
 
 type Visibility string
@@ -19,7 +18,7 @@ type Struct struct {
 	NoLint   bool
 	Type     *ast.StructType
 	TypeSpec *ast.TypeSpec
-	Pkg      *packages.Package
+	Pkg      *types.Package
 	File     *ast.File
 }
 
